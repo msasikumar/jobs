@@ -1,0 +1,279 @@
+global:
+  smtp_smarthost: 'smtp.company.com:587'
+  smtp_from: 'alerts@company.com'
+  smtp_auth_username: 'alerts@company.com'
+  smtp_auth_password: 'smtp_password'
+  smtp_require_tls: true
+
+# Templates for alert notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alert routing
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default-receiver'
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      routes:
+        - match:
+            service: jobs-app
+          receiver: 'critical-app-alerts'
+        - match:
+            service: system
+          receiver: 'critical-system-alerts'
+        - match:
+            service: deployment
+          receiver: 'critical-deployment-alerts'
+
+    # Warning alerts - standard notification
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 30m
+      routes:
+        - match:
+            service: jobs-app
+          receiver: 'app-warnings'
+        - match:
+            service: system
+          receiver: 'system-warnings'
+        - match:
+            service: deployment
+          receiver: 'deployment-warnings'
+
+    # Business metrics alerts
+    - match:
+        service: business
+      receiver: 'business-alerts'
+      group_wait: 1m
+      repeat_interval: 2h
+
+    # Maintenance window - suppress alerts
+    - match:
+        alertname: 'MaintenanceMode'
+      receiver: 'null'
+
+# Inhibition rules to suppress redundant alerts
+inhibit_rules:
+  # Suppress warning alerts when critical alerts are firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+  # Suppress individual service alerts when the entire application is down
+  - source_match:
+      alertname: 'ApplicationDown'
+    target_match_re:
+      alertname: '(HighErrorRate|HighResponseTime|DatabaseConnectionsHigh)'
+    equal: ['instance']
+
+  # Suppress container alerts when the host is down
+  - source_match:
+      alertname: 'InstanceDown'
+    target_match_re:
+      alertname: '(ContainerHighCPU|ContainerHighMemory|ContainerRestarting)'
+    equal: ['instance']
+
+# Receivers define notification destinations
+receivers:
+  # Default receiver
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'devops@company.com'
+        subject: '[ALERT] {{ .GroupLabels.alertname }} - {{ .GroupLabels.instance }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Severity: {{ .Labels.severity }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'devops@company.com,oncall@company.com'
+        subject: '[CRITICAL] {{ .GroupLabels.alertname }} - IMMEDIATE ACTION REQUIRED'
+        body: |
+          🚨 CRITICAL ALERT 🚨
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Service: {{ .Labels.service }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          Runbook: https://wiki.company.com/runbooks/{{ .Labels.alertname }}
+          {{ end }}
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#critical-alerts'
+        title: '🚨 Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          *Service:* {{ .Labels.service }}
+          *Time:* {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+        send_resolved: true
+
+  # Critical application alerts
+  - name: 'critical-app-alerts'
+    email_configs:
+      - to: 'dev-team@company.com,devops@company.com'
+        subject: '[CRITICAL APP] {{ .GroupLabels.alertname }} - Jobs Application Issue'
+        body: |
+          🚨 CRITICAL APPLICATION ALERT 🚨
+          
+          The Jobs Application is experiencing critical issues:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          Dashboard: http://192.168.68.89:3001/d/jobs-app-dashboard
+          Logs: http://192.168.68.89:3001/explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bcontainer%3D%5C%22jobs-app%5C%22%7D%22%7D%5D
+          {{ end }}
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        description: '{{ .GroupLabels.alertname }}: {{ .GroupLabels.instance }}'
+
+  # Critical system alerts
+  - name: 'critical-system-alerts'
+    email_configs:
+      - to: 'sysadmin@company.com,devops@company.com'
+        subject: '[CRITICAL SYSTEM] {{ .GroupLabels.alertname }} - Infrastructure Issue'
+        body: |
+          🚨 CRITICAL SYSTEM ALERT 🚨
+          
+          Critical infrastructure issue detected:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          Server Dashboard: http://192.168.68.89:3001/d/node-exporter-dashboard
+          {{ end }}
+
+  # Critical deployment alerts
+  - name: 'critical-deployment-alerts'
+    email_configs:
+      - to: 'devops@company.com,release-manager@company.com'
+        subject: '[CRITICAL DEPLOYMENT] {{ .GroupLabels.alertname }} - Deployment Issue'
+        body: |
+          🚨 CRITICAL DEPLOYMENT ALERT 🚨
+          
+          Critical deployment issue detected:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          Actions to take:
+          1. Check deployment logs
+          2. Verify rollback procedures
+          3. Contact on-call engineer if needed
+          {{ end }}
+
+  # Warning alerts
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'devops@company.com'
+        subject: '[WARNING] {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ Warning Alert
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Service: {{ .Labels.service }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  # Application warnings
+  - name: 'app-warnings'
+    email_configs:
+      - to: 'dev-team@company.com'
+        subject: '[APP WARNING] {{ .GroupLabels.alertname }} - Jobs Application'
+        body: |
+          ⚠️ Application Warning
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          Dashboard: http://192.168.68.89:3001/d/jobs-app-dashboard
+          {{ end }}
+
+  # System warnings
+  - name: 'system-warnings'
+    email_configs:
+      - to: 'sysadmin@company.com'
+        subject: '[SYSTEM WARNING] {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ System Warning
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  # Deployment warnings
+  - name: 'deployment-warnings'
+    email_configs:
+      - to: 'devops@company.com'
+        subject: '[DEPLOYMENT WARNING] {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ Deployment Warning
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  # Business alerts
+  - name: 'business-alerts'
+    email_configs:
+      - to: 'product-team@company.com,dev-team@company.com'
+        subject: '[BUSINESS METRICS] {{ .GroupLabels.alertname }}'
+        body: |
+          📊 Business Metrics Alert
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Time: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          This may indicate issues with user experience or business processes.
+          Please review the application logs and user feedback.
+          {{ end }}
+
+  # Null receiver for suppressed alerts
+  - name: 'null'

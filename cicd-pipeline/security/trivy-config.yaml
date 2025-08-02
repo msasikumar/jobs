@@ -1,0 +1,156 @@
+# Trivy configuration for security scanning
+format: json
+output: /tmp/trivy-report.json
+
+# Vulnerability database
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+  
+# Cache configuration
+cache:
+  dir: /tmp/trivy-cache
+
+# Scan configuration
+scan:
+  # Skip files and directories
+  skip-files:
+    - "**/*.md"
+    - "**/README*"
+    - "**/LICENSE*"
+    - "**/.git/**"
+    - "**/node_modules/**"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/*.test.js"
+    - "**/*.spec.js"
+
+  # Skip directories
+  skip-dirs:
+    - ".git"
+    - "node_modules"
+    - "coverage"
+    - "dist"
+    - "build"
+
+# Vulnerability filtering
+vulnerability:
+  # Ignore unfixed vulnerabilities
+  ignore-unfixed: false
+  
+  # Severity levels to report
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+    - LOW
+    - UNKNOWN
+
+  # Ignore specific CVEs (add as needed)
+  ignore:
+    # Example: ignore a specific CVE that's not applicable
+    # - CVE-2021-12345
+
+# License scanning
+license:
+  # Forbidden licenses
+  forbidden:
+    - GPL-2.0
+    - GPL-3.0
+    - AGPL-1.0
+    - AGPL-3.0
+  
+  # Restricted licenses (require approval)
+  restricted:
+    - LGPL-2.1
+    - LGPL-3.0
+    - MPL-2.0
+
+# Secret scanning
+secret:
+  # Secret patterns to detect
+  patterns:
+    - name: AWS Access Key
+      pattern: "AKIA[0-9A-Z]{16}"
+    - name: AWS Secret Key
+      pattern: "[0-9a-zA-Z/+]{40}"
+    - name: GitHub Token
+      pattern: "ghp_[0-9a-zA-Z]{36}"
+    - name: Generic API Key
+      pattern: "api[_-]?key['\"]?\\s*[:=]\\s*['\"]?[0-9a-zA-Z]{32,}"
+    - name: Database Password
+      pattern: "password['\"]?\\s*[:=]\\s*['\"]?[^\\s'\"]{8,}"
+
+# Misconfiguration scanning
+misconfig:
+  # Include Dockerfile checks
+  dockerfile: true
+  
+  # Include Kubernetes checks
+  kubernetes: true
+  
+  # Include Terraform checks
+  terraform: false
+  
+  # Custom policies directory
+  policy: /etc/trivy/policies
+
+# Output configuration
+output-template: |
+  {
+    "SchemaVersion": {{ .SchemaVersion }},
+    "ArtifactName": "{{ .ArtifactName }}",
+    "ArtifactType": "{{ .ArtifactType }}",
+    "CreatedAt": "{{ .CreatedAt }}",
+    "Results": [
+      {{- range $index, $result := .Results }}
+      {{- if $index }},{{ end }}
+      {
+        "Target": "{{ $result.Target }}",
+        "Class": "{{ $result.Class }}",
+        "Type": "{{ $result.Type }}",
+        "Vulnerabilities": [
+          {{- range $vIndex, $vuln := $result.Vulnerabilities }}
+          {{- if $vIndex }},{{ end }}
+          {
+            "VulnerabilityID": "{{ $vuln.VulnerabilityID }}",
+            "PkgName": "{{ $vuln.PkgName }}",
+            "InstalledVersion": "{{ $vuln.InstalledVersion }}",
+            "FixedVersion": "{{ $vuln.FixedVersion }}",
+            "Severity": "{{ $vuln.Severity }}",
+            "Title": "{{ $vuln.Title }}",
+            "Description": "{{ $vuln.Description }}"
+          }
+          {{- end }}
+        ],
+        "Misconfigurations": [
+          {{- range $mIndex, $misconfig := $result.Misconfigurations }}
+          {{- if $mIndex }},{{ end }}
+          {
+            "Type": "{{ $misconfig.Type }}",
+            "ID": "{{ $misconfig.ID }}",
+            "Title": "{{ $misconfig.Title }}",
+            "Description": "{{ $misconfig.Description }}",
+            "Message": "{{ $misconfig.Message }}",
+            "Severity": "{{ $misconfig.Severity }}",
+            "Status": "{{ $misconfig.Status }}"
+          }
+          {{- end }}
+        ],
+        "Secrets": [
+          {{- range $sIndex, $secret := $result.Secrets }}
+          {{- if $sIndex }},{{ end }}
+          {
+            "RuleID": "{{ $secret.RuleID }}",
+            "Category": "{{ $secret.Category }}",
+            "Severity": "{{ $secret.Severity }}",
+            "Title": "{{ $secret.Title }}",
+            "StartLine": {{ $secret.StartLine }},
+            "EndLine": {{ $secret.EndLine }},
+            "Match": "{{ $secret.Match }}"
+          }
+          {{- end }}
+        ]
+      }
+      {{- end }}
+    ]
+  }

@@ -1,0 +1,251 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: jobs-app
+  TARGET_SERVER: 192.168.68.89
+  CONTAINER_PORT: 3000
+  HOST_PORT: 80
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: msasikumar/jobs
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run unit tests
+      run: npm test
+
+    - name: Run integration tests
+      run: npm run test:integration
+
+    - name: Run code quality checks
+      run: |
+        npm run lint
+        npm run audit
+
+    - name: Generate test coverage
+      run: npm run test:coverage
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: msasikumar/jobs
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Dependency vulnerability scan
+      run: npm audit --audit-level high
+
+  build:
+    name: Build Container Image
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: msasikumar/jobs
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Copy CI/CD files
+      run: |
+        cp -r ../cicd-pipeline/docker/* .
+        cp -r ../cicd-pipeline/scripts/* .
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Scan container image
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ steps.meta.outputs.tags }}
+        format: 'sarif'
+        output: 'image-scan-results.sarif'
+
+    - name: Upload image scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'image-scan-results.sarif'
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout CI/CD scripts
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server to known hosts
+      run: |
+        ssh-keyscan -H ${{ env.TARGET_SERVER }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to staging
+      run: |
+        chmod +x scripts/deploy.sh
+        ./scripts/deploy.sh staging ${{ needs.build.outputs.image-tag }}
+      env:
+        TARGET_SERVER: ${{ env.TARGET_SERVER }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+        CONTAINER_NAME: jobs-app-staging
+        HOST_PORT: 8080
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout CI/CD scripts
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server to known hosts
+      run: |
+        ssh-keyscan -H ${{ env.TARGET_SERVER }} >> ~/.ssh/known_hosts
+
+    - name: Pre-deployment backup
+      run: |
+        chmod +x scripts/backup.sh
+        ./scripts/backup.sh production
+      env:
+        TARGET_SERVER: ${{ env.TARGET_SERVER }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+
+    - name: Deploy to production (Blue-Green)
+      run: |
+        chmod +x scripts/deploy-blue-green.sh
+        ./scripts/deploy-blue-green.sh production ${{ needs.build.outputs.image-tag }}
+      env:
+        TARGET_SERVER: ${{ env.TARGET_SERVER }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+        CONTAINER_NAME: jobs-app-production
+        HOST_PORT: ${{ env.HOST_PORT }}
+
+    - name: Health check
+      run: |
+        chmod +x scripts/health-check.sh
+        ./scripts/health-check.sh production
+      env:
+        TARGET_SERVER: ${{ env.TARGET_SERVER }}
+        HOST_PORT: ${{ env.HOST_PORT }}
+
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        chmod +x scripts/rollback.sh
+        ./scripts/rollback.sh production
+      env:
+        TARGET_SERVER: ${{ env.TARGET_SERVER }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: needs.deploy-production.result == 'success' || needs.deploy-staging.result == 'success'
+      run: |
+        echo "Deployment successful!"
+        # Add notification logic (Slack, email, etc.)
+
+    - name: Notify failure
+      if: needs.deploy-production.result == 'failure' || needs.deploy-staging.result == 'failure'
+      run: |
+        echo "Deployment failed!"
+        # Add notification logic (Slack, email, etc.)

@@ -1,0 +1,22 @@
+site_name: Job Search Guide
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.expand
+    - navigation.sections
+    - navigation.tracking
+    - navigation.instant
+    - navigation.search.highlight
+    - navigation.search.share
+    - navigation.search.suggestions
+    - navigation.search.filter
+    - navigation.search.autocomplete
+    - navigation.search
+nav:
+  - Home: index.md
+  - Job Sites: job_sites.md

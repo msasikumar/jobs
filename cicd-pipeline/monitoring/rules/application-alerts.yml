@@ -1,0 +1,225 @@
+groups:
+  - name: jobs-app-alerts
+    rules:
+      # Application availability alerts
+      - alert: ApplicationDown
+        expr: up{job=~"jobs-app-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: jobs-app
+        annotations:
+          summary: "Jobs application is down"
+          description: "Jobs application {{ $labels.instance }} has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: jobs-app
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: jobs-app
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s for {{ $labels.instance }}"
+
+      # Container health alerts
+      - alert: ContainerHighCPU
+        expr: rate(container_cpu_usage_seconds_total{name=~"jobs-app-.*"}[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: jobs-app
+        annotations:
+          summary: "Container high CPU usage"
+          description: "Container {{ $labels.name }} CPU usage is {{ $value }}%"
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes{name=~"jobs-app-.*"} / container_spec_memory_limit_bytes{name=~"jobs-app-.*"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: jobs-app
+        annotations:
+          summary: "Container high memory usage"
+          description: "Container {{ $labels.name }} memory usage is {{ $value }}%"
+
+      - alert: ContainerRestarting
+        expr: increase(container_start_time_seconds{name=~"jobs-app-.*"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: jobs-app
+        annotations:
+          summary: "Container restarting"
+          description: "Container {{ $labels.name }} has restarted"
+
+      # Database alerts
+      - alert: DatabaseConnectionsHigh
+        expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database connections high"
+          description: "Database connections are at {{ $value }}% of maximum"
+
+      - alert: DatabaseSlowQueries
+        expr: rate(pg_stat_database_tup_returned[5m]) / rate(pg_stat_database_tup_fetched[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database slow queries detected"
+          description: "Database query efficiency is {{ $value | humanizePercentage }}"
+
+  - name: infrastructure-alerts
+    rules:
+      # System resource alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Disk space low"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }} mount {{ $labels.mountpoint }}"
+
+      - alert: DiskSpaceCritical
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 95
+        for: 1m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Disk space critical"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }} mount {{ $labels.mountpoint }}"
+
+      - alert: HighDiskIO
+        expr: rate(node_disk_io_time_seconds_total[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High disk I/O"
+          description: "Disk I/O usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # Network alerts
+      - alert: HighNetworkTraffic
+        expr: rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m]) > 100000000
+        for: 10m
+        labels:
+          severity: warning
+          service: network
+        annotations:
+          summary: "High network traffic"
+          description: "Network traffic is {{ $value | humanizeBytes }}/s on {{ $labels.instance }}"
+
+  - name: deployment-alerts
+    rules:
+      # Deployment health alerts
+      - alert: DeploymentFailed
+        expr: increase(deployment_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: deployment
+        annotations:
+          summary: "Deployment failed"
+          description: "Deployment has failed {{ $value }} times in the last hour"
+
+      - alert: RollbackExecuted
+        expr: increase(rollback_executions_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: deployment
+        annotations:
+          summary: "Rollback executed"
+          description: "Rollback has been executed {{ $value }} times in the last hour"
+
+      - alert: HealthCheckFailing
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: health-check
+        annotations:
+          summary: "Health check failing"
+          description: "Health check is failing for {{ $labels.instance }}"
+
+      - alert: SSLCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+        for: 1h
+        labels:
+          severity: warning
+          service: ssl
+        annotations:
+          summary: "SSL certificate expiring"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}"
+
+  - name: business-metrics-alerts
+    rules:
+      # Business logic alerts
+      - alert: LowJobApplicationRate
+        expr: rate(job_applications_total[1h]) < 10
+        for: 30m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "Low job application rate"
+          description: "Job application rate is {{ $value }} per hour, below expected threshold"
+
+      - alert: HighJobSearchLatency
+        expr: histogram_quantile(0.95, rate(job_search_duration_seconds_bucket[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "High job search latency"
+          description: "95th percentile job search latency is {{ $value }}s"
+
+      - alert: UserRegistrationDown
+        expr: rate(user_registrations_total[1h]) == 0
+        for: 1h
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "User registration stopped"
+          description: "No user registrations in the last hour"
