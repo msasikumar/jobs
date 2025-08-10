@@ -166,6 +166,56 @@ jobs:
       run: |
         ssh-keyscan -H ${{ env.TARGET_SERVER }} >> ~/.ssh/known_hosts
 
+    - name: Generate staging .env from GitHub secrets
+      run: |
+        cat <<EOF > cicd-pipeline/configs/staging.env
+        ENVIRONMENT=staging
+        NODE_ENV=staging
+        TARGET_SERVER=${{ env.TARGET_SERVER }}
+        SSH_USER=${{ secrets.SSH_USER }}
+        CONTAINER_NAME=jobs-app-staging
+        HOST_PORT=${{ env.HOST_PORT }}
+        DB_HOST=${{ secrets.DB_HOST }}
+        DB_PORT=${{ secrets.DB_PORT }}
+        DB_NAME=${{ secrets.DB_NAME }}
+        DB_USER=${{ secrets.DB_USER }}
+        DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+        DB_SSL=${{ secrets.DB_SSL }}
+        REDIS_HOST=${{ secrets.REDIS_HOST }}
+        REDIS_PORT=${{ secrets.REDIS_PORT }}
+        REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+        REDIS_DB=${{ secrets.REDIS_DB }}
+        SMTP_HOST=${{ secrets.SMTP_HOST }}
+        SMTP_PORT=${{ secrets.SMTP_PORT }}
+        SMTP_USER=${{ secrets.SMTP_USER }}
+        SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
+        SMTP_FROM=${{ secrets.SMTP_FROM }}
+        METRICS_ENABLED=${{ secrets.METRICS_ENABLED }}
+        METRICS_PORT=${{ secrets.METRICS_PORT }}
+        HEALTH_CHECK_INTERVAL=${{ secrets.HEALTH_CHECK_INTERVAL }}
+        PERFORMANCE_MONITORING=${{ secrets.PERFORMANCE_MONITORING }}
+        UPLOAD_MAX_SIZE=${{ secrets.UPLOAD_MAX_SIZE }}
+        UPLOAD_ALLOWED_TYPES=${{ secrets.UPLOAD_ALLOWED_TYPES }}
+        UPLOAD_PATH=${{ secrets.UPLOAD_PATH }}
+        CACHE_TTL=${{ secrets.CACHE_TTL }}
+        CACHE_MAX_SIZE=${{ secrets.CACHE_MAX_SIZE }}
+        RATE_LIMIT_WINDOW=${{ secrets.RATE_LIMIT_WINDOW }}
+        RATE_LIMIT_MAX_REQUESTS=${{ secrets.RATE_LIMIT_MAX_REQUESTS }}
+        BACKUP_ENABLED=${{ secrets.BACKUP_ENABLED }}
+        BACKUP_SCHEDULE=${{ secrets.BACKUP_SCHEDULE }}
+        BACKUP_RETENTION_DAYS=${{ secrets.BACKUP_RETENTION_DAYS }}
+        MEMORY_LIMIT=${{ secrets.MEMORY_LIMIT }}
+        CPU_LIMIT=${{ secrets.CPU_LIMIT }}
+        DEBUG_MODE=${{ secrets.DEBUG_MODE }}
+        MOCK_EXTERNAL_APIS=${{ secrets.MOCK_EXTERNAL_APIS }}
+        TEST_DATA_ENABLED=${{ secrets.TEST_DATA_ENABLED }}
+        CORS_ENABLED=${{ secrets.CORS_ENABLED }}
+        DETAILED_ERRORS=${{ secrets.DETAILED_ERRORS }}
+        AUTO_MIGRATIONS=${{ secrets.AUTO_MIGRATIONS }}
+        SEED_DATA=${{ secrets.SEED_DATA }}
+        EOF
+      shell: bash
+
     - name: Deploy to staging
       run: |
         chmod +x scripts/deploy.sh
