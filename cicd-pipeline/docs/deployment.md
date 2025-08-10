@@ -276,25 +276,6 @@ Critical alerts during deployment:
 - High error rates
 - Resource exhaustion
 
-## Deployment Schedules
-
-### Recommended Deployment Windows
-
-**Production Deployments:**
-- **Preferred**: Tuesday-Thursday, 10 AM - 2 PM EST
-- **Avoid**: Fridays, weekends, holidays
-- **Emergency**: Any time with proper approval
-
-**Staging Deployments:**
-- **Anytime**: Automated deployments
-- **Preferred**: Business hours for testing
-
-### Deployment Frequency
-
-- **Development**: Multiple times per day
-- **Staging**: Daily or per feature
-- **Production**: Weekly or bi-weekly
-
 ## Configuration Management
 
 ### Environment-Specific Configurations
@@ -459,16 +440,5 @@ Monthly deployment reports include:
 3. **Level 3**: Infrastructure team
 4. **Emergency**: On-call engineer
 
-### Contact Information
-
-- **DevOps Team**: devops@company.com
-- **On-Call**: +1-555-ON-CALL
-- **Incident Management**: incidents@company.com
-
-### Documentation
-
-- **Runbooks**: https://wiki.company.com/runbooks
-- **Architecture**: https://wiki.company.com/architecture
-- **Procedures**: https://wiki.company.com/procedures
 
 This deployment guide ensures consistent, reliable, and secure deployments of the Jobs application across all environments.
