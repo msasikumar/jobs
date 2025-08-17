@@ -45,6 +45,8 @@ bower_components/
 .env.test.local
 .env.production.local
 jobsites.env
+# Ignore CICD env templates containing secrets
+cicd-pipeline/configs/*.env
 *.key
 *.pem
 *.crt
